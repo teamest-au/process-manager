@@ -1,5 +1,4 @@
-import { IProcessManagerService } from '..';
-import { IProcessHealth } from '../src/IProcessManagerService';
+import { IProcessManagerService, IServiceHealth } from '..';
 
 export default class MockService implements IProcessManagerService {
   private name: string;
@@ -7,7 +6,6 @@ export default class MockService implements IProcessManagerService {
 
   private pendingStarts: { res: () => void; rej: (error: Object) => void }[];
   private pendingStops: { res: () => void; rej: (error: Object) => void }[];
-  // handler?: NodeJS.Timeout;
 
   constructor(name: string) {
     this.name = name;
@@ -18,13 +16,12 @@ export default class MockService implements IProcessManagerService {
   getName(): string {
     return this.name;
   }
-  getHealth(): Promise<IProcessHealth> {
+  getHealth(): Promise<IServiceHealth> {
     return Promise.resolve({
       healthy: this.healthy,
     });
   }
   start(): Promise<void> {
-    // this.handler = setInterval(() => {}, 1 << 30);
     return new Promise((res, rej) => {
       this.pendingStarts.push({ res, rej });
     });
@@ -53,6 +50,5 @@ export default class MockService implements IProcessManagerService {
       this.pendingStops.forEach(({ res }) => res());
     }
     this.pendingStops = [];
-    // this.handler && clearInterval(this.handler);
   }
 }

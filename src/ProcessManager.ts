@@ -1,10 +1,13 @@
+import Koa from 'koa';
+
 import ILogger from './ILogger';
 import IProcessManagerOptions from './IProcessManagerOptions';
 import RunState from './RunState';
-import IProcessManagerService, {
-  IProcessHealth,
-} from './IProcessManagerService';
+import IProcessManagerService from './IProcessManagerService';
 import IProcessStatus from './IProcessStatus';
+import IProcessHealth from './IProcessHealth';
+import { Server } from 'http';
+import { throws } from 'assert';
 
 function timeoutResolve<T>(ms: number, result: T): Promise<T> {
   return new Promise((res) => {
@@ -17,6 +20,7 @@ export default class ProcessManager {
   private options: IProcessManagerOptions;
   private currentState: RunState;
   private exitListeners: (() => void)[];
+  private healthServer?: Server;
 
   private services: {
     [key: string]: {
@@ -120,6 +124,11 @@ export default class ProcessManager {
             (service) => service.state === 'stopped',
           )
         ) {
+          if (this.healthServer) {
+            this.logger.info('All services stopped, stopping health check.');
+            this.healthServer.close();
+            this.healthServer = undefined;
+          }
           this.currentState = 'stopped';
         }
       })
@@ -164,12 +173,7 @@ export default class ProcessManager {
     };
   }
 
-  async getHealth(): Promise<{
-    healthy: boolean;
-    services: {
-      [key: string]: IProcessHealth;
-    };
-  }> {
+  async getHealth(): Promise<IProcessHealth> {
     const serviceResults = await Promise.all(
       Object.entries(this.services).map(async ([name, service]) => {
         const serviceHealth = await Promise.race([
@@ -186,18 +190,54 @@ export default class ProcessManager {
       }),
     );
 
+    const services = serviceResults.reduce((acc, res) => {
+      return {
+        ...acc,
+        [res.name]: res.serviceHealth,
+      };
+    }, {});
+
     return {
       healthy: serviceResults.every((sr) => sr.serviceHealth.healthy),
-      services: serviceResults.reduce((acc, res) => {
-        return {
-          ...acc,
-          [res.name]: res.serviceHealth,
-        };
-      }, {}),
+      services,
     };
   }
 
   start() {
+    const health = new Koa();
+
+    health.use(async (ctx, next) => {
+      switch (ctx.request.path) {
+        case '/healthz':
+          const health = await this.getHealth();
+          if (health.healthy) {
+            ctx.response.status = 200;
+          } else {
+            ctx.response.status = 503;
+          }
+          ctx.response.body = health;
+          break;
+        case '/readyz':
+          const status = this.getStatus();
+          if (status.state === 'running') {
+            ctx.response.status = 200;
+          } else {
+            ctx.response.status = 503;
+          }
+          ctx.response.body = status;
+          break;
+        default:
+          ctx.response.status = 404;
+          ctx.response.body = 'Usage: GET /healthz /readyz';
+          break;
+      }
+      next();
+    });
+
+    this.healthServer = health.listen(this.options.healthPort);
+    this.logger.info(
+      `Health check listening on port ${this.options.healthPort}`,
+    );
     this.currentState = 'starting';
     for (const service in this.services) {
       this.startService(service);
@@ -209,11 +249,5 @@ export default class ProcessManager {
     for (const service in this.services) {
       this.stopService(service);
     }
-  }
-
-  onExit(): Promise<boolean> {
-    return new Promise((res) => {
-      this.exitListeners.push(res);
-    });
   }
 }

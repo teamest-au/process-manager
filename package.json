@@ -1,6 +1,6 @@
 {
   "name": "@teamest/process-manager",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "server process manager to manage retries, health checks etc",
   "main": "dist/index.js",
   "scripts": {

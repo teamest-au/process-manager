@@ -2,12 +2,11 @@ import Koa from 'koa';
 
 import ILogger from './ILogger';
 import IProcessManagerOptions from './IProcessManagerOptions';
-import RunState from './RunState';
 import IProcessManagerService from './IProcessManagerService';
-import IProcessStatus from './IProcessStatus';
-import IProcessHealth from './IProcessHealth';
-import { Server } from 'http';
-import { throws } from 'assert';
+import IProcessStatus, { combineServiceStates } from './IProcessStatus';
+import IProcessHealth, { combineServiceHealths } from './IProcessHealth';
+import IServiceStatus, { RunState } from './IServiceStatus';
+import { IServiceHealth } from '..';
 
 function timeoutResolve<T>(ms: number, result: T): Promise<T> {
   return new Promise((res) => {
@@ -18,24 +17,18 @@ function timeoutResolve<T>(ms: number, result: T): Promise<T> {
 export default class ProcessManager {
   private logger: ILogger;
   private options: IProcessManagerOptions;
-  private currentState: RunState;
-  private exitListeners: (() => void)[];
-  private healthServer?: Server;
+  private targetState: 'running' | 'stopped';
+  private healthRunning: boolean = false;
 
   private services: {
-    [key: string]: {
-      service: IProcessManagerService;
-      state: RunState;
-      error?: any;
-    };
+    [key: string]: IProcessManagerService;
   };
 
   constructor(logger: ILogger, options: IProcessManagerOptions) {
     this.logger = logger;
     this.options = options;
     this.services = {};
-    this.currentState = 'stopped';
-    this.exitListeners = [];
+    this.targetState = 'stopped';
 
     this.startService.bind(this);
     this.stopService.bind(this);
@@ -60,83 +53,47 @@ export default class ProcessManager {
     });
   }
 
-  private startService(name: string) {
+  private async startService(name: string): Promise<void> {
     this.logger.debug(`Attempting to start service [${name}]`);
-    const entry = this.services[name];
-    if (!entry) {
+    const service = this.services[name];
+    if (!service) {
       throw new Error(
         `Cannot start service [${name}]: no service registered with that name`,
       );
     }
-    if (entry.state === 'starting' || entry.state === 'running') {
+
+    const currentState = await service.getStatus();
+    if (currentState.state === 'starting' || currentState.state === 'running') {
       this.logger.warn(
-        `Attempted to start service [${name}] already in the [${entry.state}] state`,
+        `Attempted to start service [${name}] already in the [${currentState.state}] state`,
       );
       return;
     }
-    entry.state = 'starting';
-    entry.service
-      .start()
-      .then(() => {
-        this.logger.debug(`Service [${name}] started successfully`);
-        entry.state = 'running';
-        if (
-          Object.values(this.services).every(
-            (service) => service.state === 'running',
-          )
-        ) {
-          this.currentState = 'running';
-        }
-      })
-      .catch((err) => {
-        this.logger.error(`Error starting service ${name}`, err);
-        entry.state = 'errored';
-        entry.error = err;
-        this.currentState = 'errored';
-      });
+
+    service.start();
   }
 
-  private stopService(name: string) {
+  private async stopService(name: string) {
     this.logger.debug(`Attempting to stop service [${name}]`);
-    const entry = this.services[name];
-    if (!entry) {
+    const service = this.services[name];
+    if (!service) {
       throw new Error(
         `Cannot stop service [${name}]: no service registered with that name`,
       );
     }
+
+    const currentState = await service.getStatus();
     if (
-      entry.state === 'stopping' ||
-      entry.state === 'stopped' ||
-      entry.state === 'errored'
+      currentState.state === 'stopping' ||
+      currentState.state === 'stopped' ||
+      currentState.state === 'errored'
     ) {
       this.logger.warn(
-        `Attempted to stop service [${name}] already in the [${entry.state}] state`,
+        `Attempted to stop service [${name}] already in the [${currentState.state}] state`,
       );
       return;
     }
-    entry.state = 'stopping';
-    entry.service
-      .stop()
-      .then(() => {
-        entry.state = 'stopped';
-        if (
-          Object.values(this.services).every(
-            (service) => service.state === 'stopped',
-          )
-        ) {
-          if (this.healthServer) {
-            this.logger.info('All services stopped, stopping health check.');
-            this.healthServer.close();
-            this.healthServer = undefined;
-          }
-          this.currentState = 'stopped';
-        }
-      })
-      .catch((err) => {
-        this.logger.error(`Error stopping service ${name}`, err);
-        entry.state = 'errored';
-        entry.error = err;
-      });
+    service.stop();
   }
 
   registerService(service: IProcessManagerService) {
@@ -148,28 +105,36 @@ export default class ProcessManager {
 
     this.logger.debug(`Registered service: ${name}`);
 
-    this.services[name] = {
-      service,
-      state: 'stopped',
-    };
-    if (this.currentState === 'running' || this.currentState === 'starting') {
+    this.services[name] = service;
+    if (this.targetState === 'running') {
       this.startService(name);
     }
   }
 
   getStatus(): IProcessStatus {
-    return {
-      state: this.currentState,
-      processes: Object.keys(this.services).reduce(
-        (acc, name) => ({
+    const serviceResults = Object.entries(this.services).map(
+      ([name, service]) => {
+        const serviceStatus = service.getStatus();
+        return { name, serviceStatus };
+      },
+    );
+
+    const services: { [key: string]: IServiceStatus } = serviceResults.reduce(
+      (acc, res) => {
+        return {
           ...acc,
-          [name]: {
-            state: this.services[name].state,
-            error: this.services[name].error,
-          },
-        }),
-        {},
-      ),
+          [res.name]: res.serviceStatus,
+        };
+      },
+      {},
+    );
+
+    return {
+      state:
+        Object.values(services).length === 0
+          ? this.targetState
+          : combineServiceStates(Object.values(services).map((s) => s.state)),
+      services,
     };
   }
 
@@ -181,7 +146,7 @@ export default class ProcessManager {
             healthy: false,
             message: 'timeout waiting to evaluate health',
           }),
-          service.service.getHealth(),
+          service.getHealth(),
         ]);
         return {
           name,
@@ -190,62 +155,74 @@ export default class ProcessManager {
       }),
     );
 
-    const services = serviceResults.reduce((acc, res) => {
-      return {
-        ...acc,
-        [res.name]: res.serviceHealth,
-      };
-    }, {});
+    const services: { [key: string]: IServiceHealth } = serviceResults.reduce(
+      (acc, res) => {
+        return {
+          ...acc,
+          [res.name]: res.serviceHealth,
+        };
+      },
+      {},
+    );
 
     return {
-      healthy: serviceResults.every((sr) => sr.serviceHealth.healthy),
+      healthy:
+        Object.values(services).length === 0
+          ? 'healthy'
+          : combineServiceHealths(
+              Object.values(services).map((s) => s.healthy),
+            ),
       services,
     };
   }
 
   start() {
-    const health = new Koa();
+    if (!this.healthRunning) {
+      this.healthRunning = true;
+      const health = new Koa();
 
-    health.use(async (ctx, next) => {
-      switch (ctx.request.path) {
-        case '/healthz':
-          const health = await this.getHealth();
-          if (health.healthy) {
-            ctx.response.status = 200;
-          } else {
-            ctx.response.status = 503;
-          }
-          ctx.response.body = health;
-          break;
-        case '/readyz':
-          const status = this.getStatus();
-          if (status.state === 'running') {
-            ctx.response.status = 200;
-          } else {
-            ctx.response.status = 503;
-          }
-          ctx.response.body = status;
-          break;
-        default:
-          ctx.response.status = 404;
-          ctx.response.body = 'Usage: GET /healthz /readyz';
-          break;
-      }
-      next();
-    });
+      health.use(async (ctx, next) => {
+        switch (ctx.request.path) {
+          case '/healthz':
+            const health = await this.getHealth();
+            if (health.healthy !== 'unhealthy') {
+              ctx.response.status = 200;
+            } else {
+              ctx.response.status = 503;
+            }
+            ctx.response.body = health;
+            break;
+          case '/readyz':
+            const status = this.getStatus();
+            if (status.state === 'running') {
+              ctx.response.status = 200;
+            } else {
+              ctx.response.status = 503;
+            }
+            ctx.response.body = status;
+            break;
+          default:
+            ctx.response.status = 404;
+            ctx.response.body = 'Usage: GET /healthz /readyz';
+            break;
+        }
+        next();
+      });
 
-    this.healthServer = health.listen(this.options.healthPort);
-    this.logger.info(
-      `Health check listening on port ${this.options.healthPort}`,
-    );
-    this.currentState = 'starting';
+      health.listen(this.options.healthPort);
+      this.logger.info(
+        `Health check listening on port ${this.options.healthPort}`,
+      );
+    }
+
+    this.targetState = 'running';
     for (const service in this.services) {
       this.startService(service);
     }
   }
 
   stop() {
-    this.currentState = 'stopping';
+    this.targetState = 'stopped';
     for (const service in this.services) {
       this.stopService(service);
     }

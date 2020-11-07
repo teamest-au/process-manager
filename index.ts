@@ -5,4 +5,3 @@ export { default as IProcessManagerService } from './src/IProcessManagerService'
 export { default as IProcessStatus } from './src/IProcessStatus';
 export { default as IServiceHealth } from './src/IServiceHealth';
 export { default as ProcessManager } from './src/ProcessManager';
-export { default as RunState } from './src/RunState';

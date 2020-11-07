@@ -16,31 +16,27 @@ async function tick(): Promise<void> {
 async function getHealthZ() {
   let response;
   try {
-    response = await axios.get(
-      `http://localhost:${HEALTH_PORT}/healthz`,
-    );
+    response = await axios.get(`http://localhost:${HEALTH_PORT}/healthz`);
   } catch (err) {
     response = err.response;
   }
   return {
     status: response.status,
     value: response.data,
-  }
+  };
 }
 
 async function getReadyZ() {
   let response;
   try {
-    response = await axios.get(
-      `http://localhost:${HEALTH_PORT}/readyz`,
-    );
+    response = await axios.get(`http://localhost:${HEALTH_PORT}/readyz`);
   } catch (err) {
     response = err.response;
   }
   return {
     status: response.status,
     value: response.data,
-  }
+  };
 }
 
 async function runIntegrationTests() {
@@ -56,110 +52,116 @@ async function runIntegrationTests() {
   let currentStatus = pm.getStatus();
   assert.deepEqual(currentStatus, {
     state: 'stopped',
-    processes: {},
+    services: {},
   });
   let currentHealth = await pm.getHealth();
   assert.deepEqual(currentHealth, {
-    healthy: true,
+    healthy: 'healthy',
     services: {},
   });
 
   // Statuses after registration
   pm.registerService(serviceOne);
   pm.registerService(serviceTwo);
-  await tick();
+  // await tick();
 
   currentStatus = pm.getStatus();
+
+  console.log(currentStatus);
+
   assert.equal(currentStatus.state, 'stopped');
-  assert.equal(currentStatus.processes['serviceOne'].state, 'stopped');
-  assert.equal(currentStatus.processes['serviceTwo'].state, 'stopped');
+  assert.equal(currentStatus.services['serviceOne'].state, 'stopped');
+  assert.equal(currentStatus.services['serviceTwo'].state, 'stopped');
 
   // Starting statuses
   pm.start();
+  await tick();
 
   currentStatus = pm.getStatus();
   let currentReadyZResult = await getReadyZ();
   assert.equal(currentStatus.state, 'starting');
-  assert.equal(currentStatus.processes['serviceOne'].state, 'starting');
-  assert.equal(currentStatus.processes['serviceTwo'].state, 'starting');
+  assert.equal(currentStatus.services['serviceOne'].state, 'starting');
+  assert.equal(currentStatus.services['serviceTwo'].state, 'starting');
   assert.equal(currentReadyZResult.status, 503);
 
   // Partially started statuses
-  serviceOne.mockStarted();
-  await tick();
+  serviceOne.mockNext();
+  // await tick();
 
   currentStatus = pm.getStatus();
   assert.equal(currentStatus.state, 'starting');
-  assert.equal(currentStatus.processes['serviceOne'].state, 'running');
-  assert.equal(currentStatus.processes['serviceTwo'].state, 'starting');
+  assert.equal(currentStatus.services['serviceOne'].state, 'running');
+  assert.equal(currentStatus.services['serviceTwo'].state, 'starting');
 
   // Fully started statuses
-  serviceTwo.mockStarted();
-  await tick();
+  serviceTwo.mockNext();
+  // await tick();
 
   currentStatus = pm.getStatus();
   assert.equal(currentStatus.state, 'running');
-  assert.equal(currentStatus.processes['serviceOne'].state, 'running');
-  assert.equal(currentStatus.processes['serviceTwo'].state, 'running');
+  assert.equal(currentStatus.services['serviceOne'].state, 'running');
+  assert.equal(currentStatus.services['serviceTwo'].state, 'running');
 
   // Healthy statuses
   currentHealth = await pm.getHealth();
   let currentHealthZResult = await getHealthZ();
-  assert.equal(currentHealth.healthy, true);
-  assert.equal(currentHealth.services['serviceOne'].healthy, true);
-  assert.equal(currentHealth.services['serviceTwo'].healthy, true);
+  assert.equal(currentHealth.healthy, 'healthy');
+  assert.equal(currentHealth.services['serviceOne'].healthy, 'healthy');
+  assert.equal(currentHealth.services['serviceTwo'].healthy, 'healthy');
   assert.equal(currentHealthZResult.status, 200);
   assert.deepEqual(currentHealthZResult.value, currentHealth);
 
   // Unhealthy statuses
-  serviceOne.mockHealth(false);
+  serviceOne.mockHealth('unhealthy');
 
   currentHealth = await pm.getHealth();
   currentHealthZResult = await getHealthZ();
-  assert.equal(currentHealth.healthy, false);
-  assert.equal(currentHealth.services['serviceOne'].healthy, false);
-  assert.equal(currentHealth.services['serviceTwo'].healthy, true);
+  assert.equal(currentHealth.healthy, 'unhealthy');
+  assert.equal(currentHealth.services['serviceOne'].healthy, 'unhealthy');
+  assert.equal(currentHealth.services['serviceTwo'].healthy, 'healthy');
   assert.equal(currentHealthZResult.status, 503);
   assert.deepEqual(currentHealthZResult.value, currentHealth);
 
   // Stopping statuses
   pm.stop();
+  await tick();
 
   currentStatus = pm.getStatus();
   assert.equal(currentStatus.state, 'stopping');
-  assert.equal(currentStatus.processes['serviceOne'].state, 'stopping');
-  assert.equal(currentStatus.processes['serviceTwo'].state, 'stopping');
+  assert.equal(currentStatus.services['serviceOne'].state, 'stopping');
+  assert.equal(currentStatus.services['serviceTwo'].state, 'stopping');
 
   // Partially stopped statuses
-  serviceTwo.mockStopped();
-  await tick();
+  serviceTwo.mockNext();
+  // await tick();
 
   currentStatus = pm.getStatus();
   assert.equal(currentStatus.state, 'stopping');
-  assert.equal(currentStatus.processes['serviceOne'].state, 'stopping');
-  assert.equal(currentStatus.processes['serviceTwo'].state, 'stopped');
+  assert.equal(currentStatus.services['serviceOne'].state, 'stopping');
+  assert.equal(currentStatus.services['serviceTwo'].state, 'stopped');
 
   // Fully stopped status
-  serviceOne.mockStopped();
-  await tick();
+  serviceOne.mockNext();
+  // await tick();
 
   currentStatus = pm.getStatus();
   assert.equal(currentStatus.state, 'stopped');
-  assert.equal(currentStatus.processes['serviceOne'].state, 'stopped');
-  assert.equal(currentStatus.processes['serviceTwo'].state, 'stopped');
+  assert.equal(currentStatus.services['serviceOne'].state, 'stopped');
+  assert.equal(currentStatus.services['serviceTwo'].state, 'stopped');
 
   // Partial error status
   pm.start();
-  const startError = new Error('Failed to start service 2');
-  serviceOne.mockStarted();
-  serviceTwo.mockStarted(startError);
   await tick();
+  
+  const startError = 'Failed to start service 2';
+  serviceOne.mockNext();
+  serviceTwo.mockNext(startError);
 
   currentStatus = pm.getStatus();
   assert.equal(currentStatus.state, 'errored');
-  assert.equal(currentStatus.processes['serviceOne'].state, 'running');
-  assert.equal(currentStatus.processes['serviceTwo'].state, 'errored');
-  assert.deepEqual(currentStatus.processes['serviceTwo'].error, startError);
+  assert.equal(currentStatus.services['serviceOne'].state, 'running');
+  assert.equal(currentStatus.services['serviceTwo'].state, 'errored');
+  assert.deepEqual(currentStatus.services['serviceTwo'].message, startError);
 }
 
 runIntegrationTests()

@@ -1,4 +1,6 @@
+export type HealthState = 'healthy' | 'degraded' | 'unhealthy';
+
 export default interface IServiceHealth {
-  healthy: boolean;
+  healthy: HealthState;
   message?: string;
 }

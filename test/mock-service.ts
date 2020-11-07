@@ -1,54 +1,64 @@
 import { IProcessManagerService, IServiceHealth } from '..';
+import { HealthState } from '../src/IServiceHealth';
+import IServiceStatus, { RunState } from '../src/IServiceStatus';
 
 export default class MockService implements IProcessManagerService {
   private name: string;
-  private healthy: boolean;
-
-  private pendingStarts: { res: () => void; rej: (error: Object) => void }[];
-  private pendingStops: { res: () => void; rej: (error: Object) => void }[];
+  private health: HealthState;
+  private state: RunState;
+  private statusMessage?: string;
+  private healthMessage?: string;
 
   constructor(name: string) {
     this.name = name;
-    this.healthy = true;
-    this.pendingStarts = [];
-    this.pendingStops = [];
+    this.health = 'healthy';
+    this.state = 'stopped';
   }
+
   getName(): string {
     return this.name;
   }
   getHealth(): Promise<IServiceHealth> {
     return Promise.resolve({
-      healthy: this.healthy,
+      healthy: this.health,
+      ...(this.healthMessage && { message: this.healthMessage }),
     });
   }
-  start(): Promise<void> {
-    return new Promise((res, rej) => {
-      this.pendingStarts.push({ res, rej });
-    });
-  }
-  stop(): Promise<void> {
-    return new Promise((res, rej) => {
-      this.pendingStops.push({ res, rej });
-    });
+  getStatus(): IServiceStatus {
+    return {
+      state: this.state,
+      ...(this.statusMessage && { message: this.statusMessage }),
+    };
   }
 
-  mockHealth(healthy: boolean) {
-    this.healthy = healthy;
+  start(): Promise<void> {
+    this.state = 'starting';
+    return Promise.resolve();
   }
-  mockStarted(error?: Object) {
-    if (error) {
-      this.pendingStarts.forEach(({ rej }) => rej(error));
-    } else {
-      this.pendingStarts.forEach(({ res }) => res());
-    }
-    this.pendingStarts = [];
+  stop(): Promise<void> {
+    this.state = 'stopping';
+    return Promise.resolve();
   }
-  mockStopped(error?: Object) {
-    if (error) {
-      this.pendingStops.forEach(({ rej }) => rej(error));
-    } else {
-      this.pendingStops.forEach(({ res }) => res());
+
+  mockHealth(health: HealthState, message?: string) {
+    this.health = health;
+    this.healthMessage = message;
+  }
+  mockNext(errorMessage?: string) {
+    if (errorMessage) {
+      this.state = 'errored';
+      this.statusMessage = errorMessage;
+      return;
     }
-    this.pendingStops = [];
+    switch (this.state) {
+      case 'starting':
+        this.state = 'running';
+        return;
+      case 'stopping':
+        this.state = 'stopped';
+        return;
+      default:
+        return;
+    }
   }
 }

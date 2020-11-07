@@ -6,3 +6,5 @@ export { default as IProcessStatus } from './src/IProcessStatus';
 export { default as IServiceHealth } from './src/IServiceHealth';
 export { default as IServiceStatus } from './src/IServiceStatus';
 export { default as ProcessManager } from './src/ProcessManager';
+
+export { default as waitUntilReady } from './src/waitUntilReady';

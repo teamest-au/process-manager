@@ -1,4 +1,4 @@
-import { IProcessManagerService, IServiceHealth } from '..';
+import { IProcessManagerService, IServiceHealth } from '../index';
 import { HealthState } from '../src/IServiceHealth';
 import IServiceStatus, { RunState } from '../src/IServiceStatus';
 

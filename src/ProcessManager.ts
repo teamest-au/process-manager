@@ -6,7 +6,7 @@ import IProcessManagerService from './IProcessManagerService';
 import IProcessStatus, { combineServiceStates } from './IProcessStatus';
 import IProcessHealth, { combineServiceHealths } from './IProcessHealth';
 import IServiceStatus, { RunState } from './IServiceStatus';
-import { IServiceHealth } from '..';
+import IServiceHealth from './IServiceHealth';
 
 function timeoutResolve<T>(ms: number, result: T): Promise<T> {
   return new Promise((res) => {

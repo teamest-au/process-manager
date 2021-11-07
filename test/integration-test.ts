@@ -1,8 +1,8 @@
 import { assert } from 'chai';
 import axios from 'axios';
-import Logger from '@danielemeryau/logger';
+import { BunyanLogger as Logger } from '@danielemeryau/logger';
 
-import { ProcessManager } from '..';
+import { ProcessManager } from '../index';
 import MockService from './mock-service';
 
 const HEALTH_PORT = 5000;
@@ -17,7 +17,7 @@ async function getHealthZ() {
   let response;
   try {
     response = await axios.get(`http://localhost:${HEALTH_PORT}/healthz`);
-  } catch (err) {
+  } catch (err: any) {
     response = err.response;
   }
   return {
@@ -30,7 +30,7 @@ async function getReadyZ() {
   let response;
   try {
     response = await axios.get(`http://localhost:${HEALTH_PORT}/readyz`);
-  } catch (err) {
+  } catch (err: any) {
     response = err.response;
   }
   return {

@@ -4,7 +4,7 @@
   "description": "server process manager to manage retries, health checks etc",
   "main": "dist/index.js",
   "scripts": {
-    "build": "rm -rf ./dist && npx tsc",
+    "build": "npx tsc",
     "integration-test": "npx ts-node test/integration-test | npx bunyan",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -19,19 +19,16 @@
   },
   "homepage": "https://github.com/teamest-au/process-manager#readme",
   "dependencies": {
-    "@types/chai": "^4.2.14",
-    "@types/node": "^14.14.6",
-    "knex": "^0.21.12",
-    "koa": "^2.13.0"
+    "koa": "^2.13.4"
   },
   "devDependencies": {
-    "@danielemeryau/logger": "^0.1.1",
+    "@danielemeryau/logger": "^1.1.0",
     "@danielemeryau/prettier-config": "0.0.6",
-    "@types/koa": "^2.11.6",
-    "axios": "^0.21.0",
-    "bunyan": "^1.8.14",
-    "chai": "^4.2.0",
-    "ts-node": "^9.0.0",
-    "typescript": "^4.0.5"
+    "@types/chai": "^4.2.22",
+    "@types/koa": "^2.13.4",
+    "axios": "^0.24.0",
+    "chai": "^4.3.4",
+    "ts-node": "^10.4.0",
+    "typescript": "^4.4.4"
   }
 }
